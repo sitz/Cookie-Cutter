@@ -143,6 +143,7 @@ input:checked+.slider:before {
 .current-status {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
     padding: 12px 16px;
     background: rgba(105, 240, 174, 0.1);
@@ -190,6 +191,7 @@ input:checked+.slider:before {
     font-size: 11px;
     color: rgba(255, 255, 255, 0.4);
     line-height: 1.4;
+    white-space: nowrap;
 }
 
 /* Disabled State */
@@ -200,4 +202,33 @@ input:checked+.slider:before {
 .container.disabled .current-status {
     background: rgba(255, 82, 82, 0.1);
     border-color: rgba(255, 82, 82, 0.2);
+}
+
+/* Report Issue Button */
+.report-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    margin-bottom: 16px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.report-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+}
+
+.report-btn svg {
+    flex-shrink: 0;
 }

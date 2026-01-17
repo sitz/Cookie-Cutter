@@ -41,4 +41,23 @@ document.addEventListener('DOMContentLoaded', () => {
             statusText.textContent = 'Disabled';
         }
     }
+
+    // Report Issue button
+    const reportIssue = document.getElementById('reportIssue');
+    reportIssue.addEventListener('click', async () => {
+        // Get current tab URL
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const url = tab?.url || 'Unknown';
+        let domain = 'Unknown';
+
+        try {
+            domain = new URL(url).hostname;
+        } catch (e) {
+            domain = url;
+        }
+
+        const title = encodeURIComponent(`Cookie banner not auto-accepted: ${domain}`);
+        const issueUrl = `https://github.com/sitz/Cookie-Cutter/issues/new?title=${title}`;
+        chrome.tabs.create({ url: issueUrl });
+    });
 });
