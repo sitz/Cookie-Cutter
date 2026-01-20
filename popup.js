@@ -57,7 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const title = encodeURIComponent(`Cookie banner not auto-accepted: ${domain}`);
-        const issueUrl = `https://github.com/sitz/Cookie-Cutter/issues/new?title=${title}`;
+        const issueUrl = `https://github.com/sitz/Cookie-Cutter/issues/new?title=${title}&labels=bug`;
         chrome.tabs.create({ url: issueUrl });
     });
 });

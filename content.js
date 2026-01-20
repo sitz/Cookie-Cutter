@@ -70,6 +70,9 @@
     // A button will NEVER be clicked unless this returns true
     // ================================
 
+    // Reject keywords for context validation
+    const REJECT_BUTTON_KEYWORDS = ['reject', 'decline', 'deny', 'refuse', 'no thanks', 'ablehnen', 'refuser', 'rechazar', 'rifiuta', 'weigeren'];
+
     function hasCookieContextInHierarchy(element) {
         let current = element;
         let depth = 0;
@@ -92,8 +95,32 @@
             // Check text content of current element only (avoid deep nesting)
             // Use innerText to get visible text, limit check to reasonable container size
             const text = (current.innerText || '').toLowerCase().slice(0, 1000);
-            if (/cookie|consent|gdpr|privacy policy/i.test(text) && text.length < 500) {
+            if (/cookie|consent|gdpr|privacy policy|we use cookies|this site uses/i.test(text) && text.length < 500) {
                 return true;
+            }
+
+            // Check for Accept/Reject button pair (strong cookie banner signal)
+            // Only check if container is reasonably sized (not full page)
+            const rect = current.getBoundingClientRect?.();
+            if (rect && rect.width < window.innerWidth * 0.95 && rect.height < window.innerHeight * 0.6) {
+                const buttons = current.querySelectorAll?.('button, [role="button"]');
+                if (buttons && buttons.length >= 2 && buttons.length <= 10) {
+                    let hasAccept = false;
+                    let hasReject = false;
+
+                    for (const btn of buttons) {
+                        const btnText = (btn.textContent || '').toLowerCase().trim();
+                        if (ALL_ACCEPT_KEYWORDS.some(kw => btnText === kw)) {
+                            hasAccept = true;
+                        }
+                        if (REJECT_BUTTON_KEYWORDS.some(kw => btnText === kw || btnText.includes(kw))) {
+                            hasReject = true;
+                        }
+                        if (hasAccept && hasReject) {
+                            return true;
+                        }
+                    }
+                }
             }
 
             current = current.parentElement;
@@ -108,12 +135,6 @@
     // ================================
 
     const FAST_PATH_CMPS = [
-        // Framer Cookie Banner (tebi.com, etc.)
-        {
-            name: 'Framer',
-            detect: () => document.querySelector('#__framer-cookie-component-button-accept, .__framer-cookie-component-button'),
-            accept: () => clickIfExists('#__framer-cookie-component-button-accept')
-        },
         // OneTrust
         {
             name: 'OneTrust',
@@ -241,23 +262,12 @@
             detect: () => document.querySelector('#privacy-banner, [id*="commanders"]'),
             accept: () => clickIfExists('#privacy-accept, [id*="commanders"][id*="accept"]')
         },
-        // Substack (Pencraft design system)
+
+        // WordPress.com CMP (consent management platform in iframes)
         {
-            name: 'Substack',
-            detect: () => document.querySelector('[class*="cookieBanner"]'),
-            accept: () => {
-                const banner = document.querySelector('[class*="cookieBanner"]');
-                if (banner) {
-                    const buttons = banner.querySelectorAll('button');
-                    for (const btn of buttons) {
-                        if (btn.textContent.trim().toLowerCase() === 'accept') {
-                            btn.click();
-                            return true;
-                        }
-                    }
-                }
-                return false;
-            }
+            name: 'WordPress.com CMP',
+            detect: () => document.querySelector('.cmp__notice'),
+            accept: () => clickIfExists('.cmp-components-button.is-primary, .cmp__agree-button, button.cmp-components-button[class*="primary"]')
         },
         // Sourcepoint (used by Guardian, BBC, etc.)
         {
@@ -271,17 +281,12 @@
             detect: () => document.querySelector('#hs-eu-cookie-confirmation'),
             accept: () => clickIfExists('#hs-eu-confirmation-button')
         },
+
         // Cookie Control (Silktide)
         {
             name: 'Silktide',
             detect: () => document.querySelector('#ccc-notify, .ccc-notify'),
             accept: () => clickIfExists('.ccc-notify-button, #ccc-notify-accept')
-        },
-        // Shopify Cookie Banner
-        {
-            name: 'Shopify',
-            detect: () => document.querySelector('.shopify-cookie-consent, [class*="cookie-consent-shopify"]'),
-            accept: () => clickIfExists('.shopify-cookie-consent button[type="submit"], [class*="cookie-consent"] button')
         }
     ];
 
@@ -323,6 +328,35 @@
     // Banner Discovery
     // ================================
 
+    // Reject keywords for button-pair detection
+    const REJECT_KEYWORDS = ['reject', 'decline', 'deny', 'refuse', 'no thanks', 'no, thanks', 'ablehnen', 'refuser', 'rechazar', 'rifiuta', 'weigeren'];
+
+    /**
+     * Check if a container has both Accept and Reject buttons (strong cookie banner signal)
+     */
+    function hasAcceptRejectButtonPair(container) {
+        const buttons = container.querySelectorAll('button, [role="button"], a');
+        let hasAccept = false;
+        let hasReject = false;
+
+        for (const btn of buttons) {
+            if (!isVisible(btn)) continue;
+            const text = getElementText(btn);
+
+            // Check for accept-like text
+            if (ALL_ACCEPT_KEYWORDS.some(kw => text === kw || text.startsWith(kw))) {
+                hasAccept = true;
+            }
+            // Check for reject-like text
+            if (REJECT_KEYWORDS.some(kw => text === kw || text.includes(kw))) {
+                hasReject = true;
+            }
+
+            if (hasAccept && hasReject) return true;
+        }
+        return false;
+    }
+
     function findCookieBanners() {
         const candidates = [];
         const checked = new Set();
@@ -342,7 +376,7 @@
         }
 
         // Strategy 2: Fixed/sticky positioned elements at viewport edges
-        const allElements = document.querySelectorAll('div, aside, section, footer, header');
+        const allElements = document.querySelectorAll('div, aside, section, footer, header, span');
         for (const el of allElements) {
             if (checked.has(el)) continue;
 
@@ -350,10 +384,9 @@
             const rect = el.getBoundingClientRect();
 
             const isFixed = style.position === 'fixed' || style.position === 'sticky';
-            const hasHighZ = parseInt(style.zIndex) > 100 || style.zIndex === 'auto';
             const isAtEdge = rect.top < 150 || rect.bottom > window.innerHeight - 150;
 
-            if (isFixed && isAtEdge && hasCookieContent(el)) {
+            if (isFixed && isAtEdge && (hasCookieContent(el) || hasAcceptRejectButtonPair(el))) {
                 candidates.push({ element: el, score: 15, reason: 'visual-heuristic' });
                 checked.add(el);
             }
@@ -363,7 +396,7 @@
         const dialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, .overlay');
         for (const el of dialogs) {
             if (checked.has(el)) continue;
-            if (isVisible(el) && hasCookieContent(el)) {
+            if (isVisible(el) && (hasCookieContent(el) || hasAcceptRejectButtonPair(el))) {
                 candidates.push({ element: el, score: 15, reason: 'dialog' });
                 checked.add(el);
             }
@@ -376,6 +409,44 @@
                 const shadowBanners = findBannersInShadow(host.shadowRoot, 0);
                 for (const banner of shadowBanners) {
                     candidates.push({ element: banner.element, score: banner.score, reason: 'shadow-dom' });
+                }
+            }
+        }
+
+        // Strategy 5: Toast/notification/snackbar containers
+        // These are common UI patterns for cookie banners that may not use "cookie" in class names
+        const toastPatterns = document.querySelectorAll(
+            '[class*="toast" i], [class*="notification" i], [class*="snackbar" i], ' +
+            '[class*="banner" i], [class*="alert" i]:not([role="alert"]), [class*="popup" i]'
+        );
+        for (const el of toastPatterns) {
+            if (checked.has(el)) continue;
+            // Only add if it has Accept/Reject button pair (strong cookie signal)
+            if (isVisible(el) && hasAcceptRejectButtonPair(el)) {
+                candidates.push({ element: el, score: 25, reason: 'toast-with-buttons' });
+                checked.add(el);
+            }
+        }
+
+        // Strategy 6: Button-pair heuristic - find any visible container with Accept+Reject
+        // This catches custom implementations without standard naming
+        const potentialContainers = document.querySelectorAll('div, section, aside, footer');
+        for (const el of potentialContainers) {
+            if (checked.has(el)) continue;
+
+            const style = getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+
+            // Must be fixed/sticky or at viewport edges, and contain button pair
+            const isPositioned = style.position === 'fixed' || style.position === 'sticky';
+            const isOverlay = parseInt(style.zIndex) > 100;
+
+            if ((isPositioned || isOverlay) && isVisible(el) && hasAcceptRejectButtonPair(el)) {
+                // Extra validation: container should be reasonably sized (not full page)
+                const isReasonableSize = rect.width < window.innerWidth * 0.95 || rect.height < window.innerHeight * 0.5;
+                if (isReasonableSize) {
+                    candidates.push({ element: el, score: 20, reason: 'button-pair-heuristic' });
+                    checked.add(el);
                 }
             }
         }
@@ -663,6 +734,24 @@
     }
 
     function runAcceptance() {
+        // If the tab is hidden (opened in background via Ctrl+click), wait for it to become visible
+        if (document.visibilityState === 'hidden') {
+            log('Tab is hidden, waiting for visibility change...');
+            const onVisibilityChange = () => {
+                if (document.visibilityState === 'visible') {
+                    document.removeEventListener('visibilitychange', onVisibilityChange);
+                    log('Tab became visible, running acceptance...');
+                    runAcceptanceDelayed();
+                }
+            };
+            document.addEventListener('visibilitychange', onVisibilityChange);
+            return;
+        }
+
+        runAcceptanceDelayed();
+    }
+
+    function runAcceptanceDelayed() {
         // Wait for page to stabilize
         setTimeout(acceptCookies, 300);
         setTimeout(acceptCookies, 800);
