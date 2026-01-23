@@ -4,11 +4,7 @@
   "version": "1.0",
   "description": "Automatically accepts all cookie consent popups and hides GDPR banners",
   "permissions": [
-    "activeTab",
     "storage"
-  ],
-  "host_permissions": [
-    "<all_urls>"
   ],
   "action": {
     "default_popup": "popup.html",
