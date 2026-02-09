@@ -92,11 +92,23 @@
                 return true;
             }
 
-            // Check text content of current element only (avoid deep nesting)
-            // Use innerText to get visible text, limit check to reasonable container size
-            const text = (current.innerText || '').toLowerCase().slice(0, 1000);
-            if (/cookie|consent|gdpr|privacy policy|we use cookies|this site uses/i.test(text) && text.length < 500) {
-                return true;
+            // Check text content of current element for cookie-related phrases
+            // Sample the first portion of visible text where cookie notices typically appear
+            const fullText = (current.innerText || '').toLowerCase();
+            const textSample = fullText.slice(0, 800);
+            
+            // Check for cookie-related phrases in the sampled text
+            // This catches banners that don't use cookie-related class/id names
+            if (/cookie|consent|gdpr|privacy policy|we use cookies|this site uses|use of cookies|personalization cookies/i.test(textSample)) {
+                // Validate it's a reasonably-sized container (not the entire page)
+                const rect = current.getBoundingClientRect?.();
+                if (rect && (rect.height < window.innerHeight * 0.7 || rect.width < window.innerWidth * 0.5)) {
+                    return true;
+                }
+                // Also accept if total text is under 2000 chars (unlikely to be full page)
+                if (fullText.length < 2000) {
+                    return true;
+                }
             }
 
             // Check for Accept/Reject button pair (strong cookie banner signal)
@@ -392,8 +404,8 @@
             }
         }
 
-        // Strategy 3: Modal dialogs
-        const dialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, .overlay');
+        // Strategy 3: Modal dialogs (including native <dialog> element)
+        const dialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, .overlay, dialog');
         for (const el of dialogs) {
             if (checked.has(el)) continue;
             if (isVisible(el) && (hasCookieContent(el) || hasAcceptRejectButtonPair(el))) {
@@ -678,7 +690,95 @@
             return;
         }
 
+        // Last resort: try to find hidden buttons in dialogs with cookie content
+        if (tryHiddenDialogButtons()) {
+            hasAccepted = true;
+            removeScrollLocks();
+            notifyBackground();
+            return;
+        }
+
         removeScrollLocks();
+    }
+
+    /**
+     * Last-resort handler for sites that hide cookie accept buttons via CSS.
+     * Some sites (like Teamtailor-based career pages) have cookie dialogs where
+     * the buttons are explicitly hidden with display:none or visibility:hidden.
+     * This function finds such dialogs, forces buttons visible, and clicks them.
+     */
+    function tryHiddenDialogButtons() {
+        // Find all dialog-like elements
+        const dialogContainers = document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"]');
+        
+        for (const dialog of dialogContainers) {
+            // Check if dialog contains cookie-related content
+            const text = (dialog.innerText || '').toLowerCase();
+            if (!/cookie|consent|gdpr|privacy|we use|this site uses/i.test(text)) {
+                continue;
+            }
+            
+            log('Found dialog with cookie content, checking for hidden buttons');
+            
+            // Find all buttons in this dialog, including hidden ones
+            const buttons = dialog.querySelectorAll('button, [role="button"]');
+            
+            for (const btn of buttons) {
+                // Get button text even if hidden (textContent works on hidden elements)
+                const btnText = (btn.textContent || '').toLowerCase().trim();
+                
+                // Check if this looks like an accept button
+                if (!ALL_ACCEPT_KEYWORDS.some(kw => btnText.includes(kw))) {
+                    continue;
+                }
+                
+                // Check if button is excluded
+                if (EXCLUSION_KEYWORDS.some(kw => btnText.includes(kw))) {
+                    continue;
+                }
+                
+                // Check if button is hidden
+                const style = getComputedStyle(btn);
+                const isHidden = style.display === 'none' || 
+                                 style.visibility === 'hidden' || 
+                                 style.opacity === '0' ||
+                                 btn.offsetParent === null;
+                
+                if (isHidden) {
+                    log(`Found hidden accept button: "${btnText}", forcing visible`);
+                    
+                    // Force the button visible
+                    btn.style.cssText = 'display: inline-block !important; visibility: visible !important; opacity: 1 !important;';
+                    
+                    // Also force parent elements visible up to the dialog
+                    let parent = btn.parentElement;
+                    while (parent && parent !== dialog) {
+                        const parentStyle = getComputedStyle(parent);
+                        if (parentStyle.display === 'none' || parentStyle.visibility === 'hidden') {
+                            parent.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important;';
+                        }
+                        parent = parent.parentElement;
+                    }
+                    
+                    // Now click it
+                    try {
+                        btn.click();
+                        clickCount++;
+                        log('Clicked previously-hidden accept button');
+                        return true;
+                    } catch (e) {
+                        log('Failed to click hidden button:', e);
+                    }
+                } else {
+                    // Button is visible, just click it
+                    btn.click();
+                    clickCount++;
+                    return true;
+                }
+            }
+        }
+        
+        return false;
     }
 
     // ================================
