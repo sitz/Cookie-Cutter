@@ -194,12 +194,21 @@
 
     function findInShadow(root, depth) {
         if (depth > 2) return [];
-        const hostText = (root.host?.textContent || '').toLowerCase();
-        if (!CONTEXT_WORDS.some(w => hostText.includes(w)))
-            return [];
+
+        // Check host id/class for cookie/consent keywords (e.g. #wpconsent-container)
+        const hostId = (root.host?.id || '').toLowerCase();
+        const hostClass = (root.host?.className || '').toLowerCase();
+        const hostMeta = hostId + ' ' + hostClass;
+        const metaHit = CONTEXT_WORDS.some(w => hostMeta.includes(w));
+
+        // Check shadow root's own text (light DOM textContent is empty for shadow-only components)
+        const shadowText = (root.textContent || '').toLowerCase();
+        const textHit = CONTEXT_WORDS.some(w => shadowText.includes(w));
+
+        if (!metaHit && !textHit) return [];
 
         const results = [];
-        for (const el of root.querySelectorAll('button, [role="button"]')) {
+        for (const el of root.querySelectorAll(CLICKABLE)) {
             if (!isVisible(el)) continue;
             const c = scoreButton(el);
             if (c) { c.score = 45; results.push(c); }
